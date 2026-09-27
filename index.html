@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>GéoMemo – Mémorisez le monde</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+/* ════════════════════════════════════════
+   VARIABLES & RESET
+════════════════════════════════════════ */
+:root{
+  --bg:#0d1117; --sur:#161b27; --sur2:#1e2535; --bor:#2d3748;
+  --acc:#7c6cf5; --acc2:#5a51d6; --grn:#22c55e; --red:#ef4444;
+  --txt:#e2e8f0; --muted:#8892a4; --r:12px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--txt)}
+button{font-family:inherit;cursor:pointer}
+img{display:block}
+
+/* ════════════════════════════════════════
+   LOADING OVERLAY
+════════════════════════════════════════ */
+#ld{
+  position:fixed;inset:0;background:var(--bg);z-index:9999;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem
+}
+.spin{width:46px;height:46px;border:4px solid var(--bor);border-top-color:var(--acc);border-radius:50%;animation:rot .8s linear infinite}
+@keyframes rot{to{transform:rotate(360deg)}}
+#ld-msg{color:var(--muted);font-size:.9rem}
+
+/* ════════════════════════════════════════
+   SCREENS
+════════════════════════════════════════ */
+.scr{display:none;width:100vw;height:100vh}
+.scr.on{display:flex;flex-direction:column}
+
+/* ════════════════════════════════════════
+   HOME SCREEN
+════════════════════════════════════════ */
+#scr-home{align-items:center;justify-content:center;overflow-y:auto;padding:2rem 1rem}
+.home-in{max-width:680px;width:100%;text-align:center}
+.logo{font-size:3.5rem;margin-bottom:.2rem}
+.title{
+  font-size:2.6rem;font-weight:900;letter-spacing:-1px;margin-bottom:.4rem;
+  background:linear-gradient(135deg,var(--acc),#a78bfa);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text
+}
+.sub{color:var(--muted);font-size:1rem;margin-bottom:2.5rem}
+.sec{text-align:left;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:.75rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:.7rem;margin-bottom:1rem}
+.lwrap{position:relative}
+.lbtn{
+  width:100%;background:var(--sur);border:1px solid var(--bor);color:var(--txt);
+  padding:1.3rem .75rem 1rem;border-radius:var(--r);font-size:.88rem;font-weight:600;
+  display:flex;flex-direction:column;align-items:center;gap:.35rem;transition:all .2s
+}
+.lbtn:hover{background:var(--sur2);border-color:var(--acc);transform:translateY(-2px);box-shadow:0 4px 20px rgba(124,108,245,.2)}
+.lic{font-size:1.8rem}
+.lcnt{font-size:.68rem;color:var(--muted)}
+.delbtn{
+  position:absolute;top:6px;right:6px;background:rgba(239,68,68,.15);border:none;
+  color:var(--red);width:22px;height:22px;border-radius:50%;font-size:.68rem;
+  display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s
+}
+.lwrap:hover .delbtn{opacity:1}
+.btn-new{
+  display:inline-flex;align-items:center;gap:.5rem;background:var(--acc);color:#fff;
+  border:none;padding:.85rem 1.75rem;border-radius:var(--r);font-size:.95rem;font-weight:700;
+  transition:all .2s;margin-top:.25rem
+}
+.btn-new:hover{background:var(--acc2);transform:translateY(-1px);box-shadow:0 4px 20px rgba(124,108,245,.4)}
+
+/* ════════════════════════════════════════
+   GAME SCREEN
+════════════════════════════════════════ */
+.topbar{
+  display:flex;align-items:center;gap:.75rem;padding:.7rem 1.1rem;
+  background:var(--sur);border-bottom:1px solid var(--bor);flex-shrink:0
+}
+.back{
+  background:none;border:1px solid var(--bor);color:var(--muted);
+  width:34px;height:34px;border-radius:8px;font-size:1.05rem;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s
+}
+.back:hover{border-color:var(--acc);color:var(--txt)}
+.qcard{flex:1;display:flex;align-items:center;justify-content:center;gap:.85rem;overflow:hidden;min-width:0}
+/* Le drapeau est un emoji Unicode (span), plus une image — aucune requête réseau */
+.flag-emoji{font-size:2.3rem;line-height:1;flex-shrink:0;filter:drop-shadow(0 2px 6px rgba(0,0,0,.5))}
+#qname{font-size:1.35rem;font-weight:800;letter-spacing:-.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pw{min-width:80px;text-align:right;flex-shrink:0}
+.ptxt{font-size:.75rem;color:var(--muted);margin-bottom:4px}
+.ptrack{background:var(--bor);border-radius:4px;height:5px;overflow:hidden}
+.pfill{background:linear-gradient(90deg,var(--acc),#a78bfa);height:100%;border-radius:4px;transition:width .4s}
+#map{flex:1;min-height:0;background:#0a1628}
+
+/* ════════════════════════════════════════
+   TOAST
+════════════════════════════════════════ */
+#toast{
+  position:fixed;bottom:1.5rem;left:50%;
+  transform:translateX(-50%) translateY(60px);
+  padding:.55rem 1.4rem;border-radius:50px;font-weight:700;font-size:.95rem;
+  z-index:9999;pointer-events:none;transition:transform .22s,opacity .22s;opacity:0
+}
+#toast.vis{transform:translateX(-50%) translateY(0);opacity:1}
+#toast.ok{background:var(--grn);color:#fff}
+#toast.er{background:var(--red);color:#fff}
+
+/* ════════════════════════════════════════
+   RESULTS SCREEN
+════════════════════════════════════════ */
+#scr-res{align-items:center;justify-content:center;padding:2rem}
+.rbox{text-align:center;max-width:400px;width:100%}
+.rmed{font-size:5rem;margin-bottom:.5rem}
+.rhead{font-size:2rem;font-weight:800;margin-bottom:1.25rem}
+.rsco{font-size:4.5rem;font-weight:900;color:var(--acc);line-height:1.1}
+.rpct{color:var(--muted);margin:.4rem 0 2rem}
+.rbtns{display:flex;flex-direction:column;gap:.7rem}
+
+/* ════════════════════════════════════════
+   SHARED BUTTONS
+════════════════════════════════════════ */
+.btn{width:100%;padding:.82rem 1.5rem;border-radius:var(--r);font-size:.92rem;font-weight:700;border:none;transition:all .15s}
+.bacc{background:var(--acc);color:#fff}
+.bacc:hover{background:var(--acc2)}
+.bout{background:var(--sur);color:var(--txt);border:1px solid var(--bor)}
+.bout:hover{background:var(--sur2);border-color:var(--acc)}
+
+/* ════════════════════════════════════════
+   MODAL
+════════════════════════════════════════ */
+.ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;align-items:center;justify-content:center;padding:1rem}
+.ov.on{display:flex}
+.modal{background:var(--sur);border:1px solid var(--bor);border-radius:16px;width:100%;max-width:560px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden}
+.mhd{padding:1.1rem 1.4rem;border-bottom:1px solid var(--bor);display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+.mhd h2{font-size:1.05rem;font-weight:700}
+.mx{background:none;border:none;color:var(--muted);font-size:1.3rem;line-height:1;transition:color .15s}
+.mx:hover{color:var(--txt)}
+.mbd{padding:1.1rem 1.4rem;overflow-y:auto;flex:1}
+.mft{padding:.9rem 1.4rem;border-top:1px solid var(--bor);display:flex;gap:.6rem;flex-shrink:0}
+.mft .btn{flex:1}
+.fld{
+  width:100%;background:var(--sur2);border:1px solid var(--bor);color:var(--txt);
+  padding:.6rem 1rem;border-radius:8px;font-size:.88rem;font-family:inherit;
+  outline:none;transition:border-color .2s;margin-bottom:.7rem
+}
+.fld:focus{border-color:var(--acc)}
+.fld::placeholder{color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:.35rem;margin-bottom:.7rem}
+.chip{
+  background:var(--sur2);border:1px solid var(--bor);color:var(--muted);
+  padding:.28rem .65rem;border-radius:20px;font-size:.73rem;font-weight:700;cursor:pointer;transition:all .15s
+}
+.chip:hover,.chip.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.selbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:.45rem}
+.selcnt{font-size:.75rem;color:var(--muted)}
+.selacts{display:flex;gap:.5rem}
+.mini{background:none;border:none;color:var(--acc);font-size:.73rem;font-weight:700;cursor:pointer;text-decoration:underline}
+#clist{display:grid;grid-template-columns:1fr 1fr;gap:.25rem}
+.crow{display:flex;align-items:center;gap:.45rem;padding:.38rem .4rem;border-radius:6px;cursor:pointer;transition:background .12s}
+.crow:hover{background:var(--sur2)}
+.crow input{accent-color:var(--acc);width:14px;height:14px;flex-shrink:0;cursor:pointer}
+.crow .flagm{font-size:1.05rem;flex-shrink:0;width:20px;text-align:center}
+.crow span.cname{font-size:.8rem;pointer-events:none}
+
+/* Leaflet overrides */
+.leaflet-control-attribution{font-size:9px!important;background:rgba(0,0,0,.35)!important;color:#555!important}
+.leaflet-control-attribution a{color:#777!important}
+
+/* Scrollbar */
+::-webkit-scrollbar{width:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--bor);border-radius:3px}
+
+@media(max-width:480px){
+  .title{font-size:2rem}
+  #qname{font-size:1.05rem}
+  #clist{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- ════ LOADING ════ -->
+<div id="ld">
+  <div class="spin"></div>
+  <p id="ld-msg">Chargement de la carte du monde…</p>
+</div>
+
+<!-- ════ HOME ════ -->
+<div id="scr-home" class="scr">
+  <div class="home-in">
+    <div class="logo">🌍</div>
+    <h1 class="title">GéoMemo</h1>
+    <p class="sub">Mémorisez l'emplacement des pays du monde</p>
+    <p class="sec">Choisissez une liste</p>
+    <div id="home-grid" class="grid"></div>
+    <button class="btn-new" onclick="openModal()">✚ Créer une nouvelle liste</button>
+  </div>
+</div>
+
+<!-- ════ GAME ════ -->
+<div id="scr-game" class="scr">
+  <div class="topbar">
+    <button class="back" onclick="tryGoHome()" title="Retour au menu">←</button>
+    <div class="qcard">
+      <!-- Drapeau affiché en emoji Unicode (pas d'image, pas de requête réseau) -->
+      <span id="qflag" class="flag-emoji">🏳️</span>
+      <span id="qname">…</span>
+    </div>
+    <div class="pw">
+      <div class="ptxt" id="qprog">0/0</div>
+      <div class="ptrack"><div class="pfill" id="qbar" style="width:0%"></div></div>
+    </div>
+  </div>
+  <div id="map"></div>
+</div>
+
+<!-- ════ RESULTS ════ -->
+<div id="scr-res" class="scr">
+  <div class="rbox">
+    <div class="rmed" id="rmed">🏆</div>
+    <h2 class="rhead">Partie terminée !</h2>
+    <div class="rsco" id="rsco">—</div>
+    <p class="rpct" id="rpct"></p>
+    <div class="rbtns">
+      <button id="rerr" class="btn bacc" onclick="retryErrors()" style="display:none">🔄 Rejouer les erreurs</button>
+      <button class="btn bout" onclick="retryFull()">🔁 Rejouer la liste complète</button>
+      <button class="btn bout" onclick="goHome()">🏠 Retour au menu</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ MODAL ════ -->
+<div id="ov" class="ov" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="mhd">
+      <h2>✚ Nouvelle liste personnalisée</h2>
+      <button class="mx" onclick="closeModal()">×</button>
+    </div>
+    <div class="mbd">
+      <input type="text" id="mname" class="fld" placeholder="Nom de la liste…" maxlength="50">
+      <div class="chips" id="mchips">
+        <button class="chip on" onclick="chipClick(null,this)">🌍 Tous</button>
+        <button class="chip" onclick="chipClick('Africa',this)">Afrique</button>
+        <button class="chip" onclick="chipClick('Americas',this)">Amériques</button>
+        <button class="chip" onclick="chipClick('Asia',this)">Asie</button>
+        <button class="chip" onclick="chipClick('Europe',this)">Europe</button>
+        <button class="chip" onclick="chipClick('Oceania',this)">Océanie</button>
+      </div>
+      <input type="text" id="msearch" class="fld" placeholder="🔍 Rechercher un pays…" oninput="refreshClist()">
+      <div class="selbar">
+        <span class="selcnt" id="mscnt">0 sélectionné(s)</span>
+        <div class="selacts">
+          <button class="mini" onclick="checkAll()">Tout cocher</button>
+          <button class="mini" onclick="uncheckAll()">Tout décocher</button>
+        </div>
+      </div>
+      <div id="clist"></div>
+    </div>
+    <div class="mft">
+      <button class="btn bout" onclick="closeModal()">Annuler</button>
+      <button class="btn bacc" onclick="saveCustomList()">💾 Sauvegarder</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast notification (fixed, outside screens) -->
+<div id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ════════════════════════════════════════════════════════════════
+   GÉOMEMO – Jeu de géographie interactif
+   
+   Architecture (100% autonome, UNE SEULE requête réseau) :
+     1. Chargement du GeoJSON (polygones + noms + codes pays)
+     2. Construction de la liste des pays directement depuis ce GeoJSON
+        (plus de dépendance à une API externe type REST Countries,
+        trop souvent indisponible / instable)
+     3. Drapeaux générés localement en emoji Unicode (zéro réseau)
+     4. Régions/continents déterminés via une table statique intégrée
+     5. Initialisation de la carte Leaflet avec couche GeoJSON cliquable
+     6. Boucle de jeu (question → clic → feedback → suivant)
+     7. Écran de résultats
+     8. Gestion des listes personnalisées (localStorage)
+════════════════════════════════════════════════════════════════ */
+
+/* ── CONSTANTES ─────────────────────────────────────────────── */
+
+// GeoJSON des polygones pays (Natural Earth, ADMIN + ISO_A2 + ISO_A3)
+// → C'est la SEULE source de données externe utilisée par l'app.
+const GEO_URL  = 'https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson';
+
+// Clé de stockage local
+const STORE_KEY = 'geomemo_v3';
+
+// Listes par défaut (région null = monde entier)
+const DEFAULTS = [
+  { label:'Monde',     icon:'🌍', region:null },
+  { label:'Europe',    icon:'🏰', region:'Europe' },
+  { label:'Amériques', icon:'🌎', region:'Americas' },
+  { label:'Asie',      icon:'🏯', region:'Asia' },
+  { label:'Afrique',   icon:'🦁', region:'Africa' },
+  { label:'Océanie',   icon:'🏝️',  region:'Oceania' },
+];
+
+/**
+ * Table statique ISO_A2 → continent.
+ * Remplace l'appel à une API externe pour la classification
+ * par région (Afrique / Amériques / Asie / Europe / Océanie).
+ * Couvre les états souverains + principaux territoires présents
+ * dans le jeu de données GeoJSON. Tout code absent de cette table
+ * reste jouable dans "Monde" mais n'apparaît dans aucune liste
+ * continentale par défaut.
+ */
+const REGION_MAP = {
+  // Afrique
+  DZ:'Africa',AO:'Africa',BJ:'Africa',BW:'Africa',BF:'Africa',BI:'Africa',CV:'Africa',
+  CM:'Africa',CF:'Africa',TD:'Africa',KM:'Africa',CG:'Africa',CD:'Africa',CI:'Africa',
+  DJ:'Africa',EG:'Africa',GQ:'Africa',ER:'Africa',SZ:'Africa',ET:'Africa',GA:'Africa',
+  GM:'Africa',GH:'Africa',GN:'Africa',GW:'Africa',KE:'Africa',LS:'Africa',LR:'Africa',
+  LY:'Africa',MG:'Africa',MW:'Africa',ML:'Africa',MR:'Africa',MU:'Africa',MA:'Africa',
+  MZ:'Africa',NA:'Africa',NE:'Africa',NG:'Africa',RW:'Africa',ST:'Africa',SN:'Africa',
+  SC:'Africa',SL:'Africa',SO:'Africa',ZA:'Africa',SS:'Africa',SD:'Africa',TZ:'Africa',
+  TG:'Africa',TN:'Africa',UG:'Africa',ZM:'Africa',ZW:'Africa',EH:'Africa',
+  // Amériques
+  AG:'Americas',AR:'Americas',BS:'Americas',BB:'Americas',BZ:'Americas',BO:'Americas',
+  BR:'Americas',CA:'Americas',CL:'Americas',CO:'Americas',CR:'Americas',CU:'Americas',
+  DM:'Americas',DO:'Americas',EC:'Americas',SV:'Americas',GD:'Americas',GT:'Americas',
+  GY:'Americas',HT:'Americas',HN:'Americas',JM:'Americas',MX:'Americas',NI:'Americas',
+  PA:'Americas',PY:'Americas',PE:'Americas',KN:'Americas',LC:'Americas',VC:'Americas',
+  SR:'Americas',TT:'Americas',US:'Americas',UY:'Americas',VE:'Americas',GL:'Americas',
+  PR:'Americas',FK:'Americas',GF:'Americas',
+  // Asie
+  AF:'Asia',AM:'Asia',AZ:'Asia',BH:'Asia',BD:'Asia',BT:'Asia',BN:'Asia',KH:'Asia',
+  CN:'Asia',GE:'Asia',IN:'Asia',ID:'Asia',IR:'Asia',IQ:'Asia',IL:'Asia',JP:'Asia',
+  JO:'Asia',KZ:'Asia',KW:'Asia',KG:'Asia',LA:'Asia',LB:'Asia',MY:'Asia',MV:'Asia',
+  MN:'Asia',MM:'Asia',NP:'Asia',KP:'Asia',OM:'Asia',PK:'Asia',PS:'Asia',PH:'Asia',
+  QA:'Asia',SA:'Asia',SG:'Asia',KR:'Asia',LK:'Asia',SY:'Asia',TW:'Asia',TJ:'Asia',
+  TH:'Asia',TL:'Asia',TM:'Asia',AE:'Asia',UZ:'Asia',VN:'Asia',YE:'Asia',HK:'Asia',
+  MO:'Asia',CY:'Asia',TR:'Asia',
+  // Europe
+  AL:'Europe',AD:'Europe',AT:'Europe',BY:'Europe',BE:'Europe',BA:'Europe',BG:'Europe',
+  HR:'Europe',CZ:'Europe',DK:'Europe',EE:'Europe',FI:'Europe',FR:'Europe',DE:'Europe',
+  GR:'Europe',HU:'Europe',IS:'Europe',IE:'Europe',IT:'Europe',XK:'Europe',LV:'Europe',
+  LI:'Europe',LT:'Europe',LU:'Europe',MT:'Europe',MD:'Europe',MC:'Europe',ME:'Europe',
+  NL:'Europe',MK:'Europe',NO:'Europe',PL:'Europe',PT:'Europe',RO:'Europe',RU:'Europe',
+  SM:'Europe',RS:'Europe',SK:'Europe',SI:'Europe',ES:'Europe',SE:'Europe',CH:'Europe',
+  UA:'Europe',GB:'Europe',VA:'Europe',
+  // Océanie
+  AU:'Oceania',FJ:'Oceania',KI:'Oceania',MH:'Oceania',FM:'Oceania',NR:'Oceania',
+  NZ:'Oceania',PW:'Oceania',PG:'Oceania',WS:'Oceania',SB:'Oceania',TO:'Oceania',
+  TV:'Oceania',VU:'Oceania',NC:'Oceania',PF:'Oceania',
+};
+
+/* ── DONNÉES GLOBALES ──────────────────────────────────────── */
+let rawGeo    = null;   // GeoJSON brut (FeatureCollection)
+let countries = [];     // [{iso2, name, flag, region}] – construits depuis le GeoJSON
+let isoMap    = {};     // iso2 → objet pays (lookup rapide)
+let customs   = {};     // { nomListe : [iso2, ...] }
+
+/* ── ÉTAT CARTE ──────────────────────────────────────────────  */
+let map      = null;    // Instance Leaflet
+let geoLayer = null;    // Couche L.geoJSON
+
+/* ── ÉTAT JEU ──────────────────────────────────────────────── */
+let gameList = [];   // Liste mélangée des pays à questionner
+let rootList = [];   // Liste originale (avant toute relance)
+let origList = [];   // Liste de la session courante
+let qIdx     = 0;    // Index question actuelle
+let score    = 0;    // Bonnes réponses
+let mistakes = [];   // Pays ratés (non mémorisés)
+let locked   = false;// Bloque les clics pendant le feedback
+
+/* ── ÉTAT MODAL ──────────────────────────────────────────────  */
+let mRegion   = null;       // Filtre région actif
+let mSelected = new Set();  // ISO2 cochés (persistant entre filtres)
+
+/* ════════════════════════════════════════════════════════════════
+   STOCKAGE – localStorage avec fallback en mémoire
+════════════════════════════════════════════════════════════════ */
+const _mem = {};
+function sGet(k)   { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch { return _mem[k] ?? null; } }
+function sSet(k,v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { _mem[k] = v; } }
+
+/* ════════════════════════════════════════════════════════════════
+   NAVIGATION
+════════════════════════════════════════════════════════════════ */
+function showScr(id) {
+  document.querySelectorAll('.scr').forEach(s => s.classList.remove('on'));
+  document.getElementById(id).classList.add('on');
+}
+
+/* ════════════════════════════════════════════════════════════════
+   UTILITAIRE – Emoji drapeau depuis un code ISO_A2
+   Les drapeaux Unicode sont composés de 2 "Regional Indicator Symbols"
+   (U+1F1E6 à U+1F1FF, un par lettre A-Z). Aucune image, aucun réseau,
+   aucune dépendance externe : ça fonctionne toujours.
+════════════════════════════════════════════════════════════════ */
+function isoToFlagEmoji(iso2) {
+  if (!iso2 || iso2.length !== 2) return '🏳️';
+  const points = [...iso2.toUpperCase()].map(c => 127397 + c.charCodeAt(0));
+  return String.fromCodePoint(...points);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   CHARGEMENT DES DONNÉES
+════════════════════════════════════════════════════════════════ */
+
+/**
+ * Récupère le GeoJSON des pays du monde.
+ * Chaque feature : { properties: { ADMIN, ISO_A2, ISO_A3 }, geometry: {...} }
+ * C'est la seule requête réseau nécessaire au fonctionnement du jeu :
+ * elle fournit à la fois les polygones ET les noms/codes des pays.
+ */
+async function fetchGeo() {
+  const r = await fetch(GEO_URL);
+  if (!r.ok) throw new Error(`GeoJSON HTTP ${r.status}`);
+  return r.json();
+}
+
+/* ════════════════════════════════════════════════════════════════
+   INITIALISATION
+════════════════════════════════════════════════════════════════ */
+async function init() {
+  setLd('Chargement de la carte du monde…');
+  try {
+    rawGeo = await fetchGeo();
+
+    // Construit la liste des pays directement depuis les features GeoJSON :
+    // nom = ADMIN, code = ISO_A2, drapeau = emoji généré, région = table statique.
+    // On déduplique par ISO2 (certains jeux de données ont des doublons de territoires).
+    const seen = new Set();
+    countries = [];
+    rawGeo.features.forEach(f => {
+      // NB : ce jeu de données nomme ses propriétés "ISO3166-1-Alpha-2" et "name"
+      // (et non ISO_A2 / ADMIN comme d'autres sources GeoJSON) — accès par crochets.
+      const iso2 = f.properties['ISO3166-1-Alpha-2'];
+      const name = f.properties.name || f.properties.ADMIN || f.properties.NAME;
+      if (!iso2 || iso2 === '-99' || !name || seen.has(iso2)) return;
+      seen.add(iso2);
+      countries.push({
+        iso2,
+        name,
+        flag:   isoToFlagEmoji(iso2),
+        region: REGION_MAP[iso2] || '',
+      });
+    });
+
+    // Reconstruction du lookup rapide
+    isoMap = {};
+    countries.forEach(c => { isoMap[c.iso2] = c; });
+
+    // Chargement des listes personnalisées
+    customs = sGet(STORE_KEY) || {};
+
+    renderHome();
+    document.getElementById('ld').style.display = 'none';
+    showScr('scr-home');
+
+  } catch (e) {
+    document.getElementById('ld').innerHTML = `
+      <div style="text-align:center;padding:2rem;max-width:320px">
+        <div style="font-size:2.5rem;margin-bottom:1rem">❌</div>
+        <p style="color:var(--muted);margin-bottom:1.5rem">Erreur de chargement de la carte.<br>Vérifiez votre connexion internet.</p>
+        <button onclick="location.reload()" style="background:var(--acc);color:#fff;border:none;padding:.75rem 1.5rem;border-radius:10px;font-size:.95rem;font-weight:700;cursor:pointer;font-family:inherit">
+          ↺ Réessayer
+        </button>
+      </div>`;
+  }
+}
+
+function setLd(msg) { document.getElementById('ld-msg').textContent = msg; }
+
+/* ════════════════════════════════════════════════════════════════
+   ÉCRAN D'ACCUEIL
+════════════════════════════════════════════════════════════════ */
+function renderHome() {
+  const grid = document.getElementById('home-grid');
+  grid.innerHTML = '';
+
+  // Listes par défaut
+  DEFAULTS.forEach(d => {
+    const list = d.region ? countries.filter(c => c.region === d.region) : countries;
+    if (!list.length) return;
+    grid.appendChild(makeCard(d.icon, d.label, list.length, null, () => startGame(list, d.label)));
+  });
+
+  // Listes personnalisées de l'utilisateur
+  Object.entries(customs).forEach(([name, isoArr]) => {
+    const list = isoArr.map(iso => isoMap[iso]).filter(Boolean);
+    if (!list.length) return;
+    grid.appendChild(makeCard('📋', name, list.length, name, () => startGame(list, name)));
+  });
+}
+
+/**
+ * Crée une carte de liste (évite les <button> imbriqués, non valide HTML).
+ * Le wrapper est une <div> ; le bouton principal et le bouton supprimer sont frères.
+ */
+function makeCard(icon, label, count, delName, onClick) {
+  const wrap = document.createElement('div');
+  wrap.className = 'lwrap';
+
+  const btn = document.createElement('button');
+  btn.className = 'lbtn';
+  btn.innerHTML = `<span class="lic">${icon}</span><span>${label}</span><span class="lcnt">${count} pays</span>`;
+  btn.onclick = onClick;
+  wrap.appendChild(btn);
+
+  if (delName) {
+    const d = document.createElement('button');
+    d.className = 'delbtn';
+    d.title = 'Supprimer';
+    d.textContent = '✕';
+    d.onclick = e => {
+      e.stopPropagation(); // Empêche le déclenchement du bouton parent
+      if (confirm(`Supprimer la liste "${delName}" ?`)) {
+        delete customs[delName];
+        sSet(STORE_KEY, customs);
+        renderHome();
+      }
+    };
+    wrap.appendChild(d);
+  }
+  return wrap;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   INITIALISATION DE LA CARTE LEAFLET
+════════════════════════════════════════════════════════════════ */
+
+/**
+ * Crée (ou recrée) la carte Leaflet et la couche GeoJSON.
+ *
+ * ◆ TUILE DE FOND
+ *   On utilise les tuiles CartoDB "Dark No Labels" :
+ *   https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png
+ *   – Fond sombre avec océans et terrain
+ *   – AUCUN nom de pays, ville ou frontière dans les tuiles
+ *   – {r} : vide sur écran normal, "@2x" sur écran Retina
+ *   – subdomains 'abcd' : répartition des requêtes sur 4 serveurs CDN
+ *
+ * ◆ COUCHE GEOJSON
+ *   L.geoJSON(rawGeo, options) parse la FeatureCollection et crée
+ *   des chemins SVG/Canvas pour chaque polygone pays (Polygon + MultiPolygon).
+ *
+ *   style(feature)           → options visuelles Leaflet (fill, stroke, opacity)
+ *   onEachFeature(f, layer)  → appelé 1× par feature ; on y attache les listeners :
+ *     · mouseover  → survol = mise en évidence légère
+ *     · mouseout   → sortie souris = restauration du style par défaut
+ *     · click      → clic = évaluation de la réponse du joueur
+ *
+ *   Chaque layer conserve feature.properties.ISO_A2 qu'on compare
+ *   à l'ISO2 de la question courante pour valider/invalider la réponse.
+ */
+function initMap() {
+  // Destruction de l'instance précédente pour éviter les fuites mémoire
+  if (map) { map.remove(); map = null; geoLayer = null; }
+
+  // Création de la carte centrée sur le monde
+  map = L.map('map', {
+    center: [20, 0],
+    zoom: 2,
+    minZoom: 1,
+    maxZoom: 7,
+    zoomSnap: 0.5,
+    attributionControl: true,
+  });
+
+  /* ── Couche de tuiles : fond sombre sans labels ── */
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
+    attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a> © <a href="https://carto.com">CARTO</a>',
+    subdomains: 'abcd',
+    maxZoom: 19,
+  }).addTo(map);
+
+  /* ── Couche GeoJSON : polygones pays cliquables ── */
+  geoLayer = L.geoJSON(rawGeo, {
+
+    /** Style par défaut appliqué à chaque polygone pays */
+    style: () => ({
+      fillColor:   '#1a3a5c',  // Bleu sombre
+      fillOpacity: 0.55,
+      color:       '#3b82f6',  // Bordure bleue claire
+      weight:      0.75,
+      opacity:     0.8,
+    }),
+
+    /**
+     * Appelé une fois par feature GeoJSON lors de la création de la couche.
+     * C'est ici qu'on bind les événements sur chaque polygone individuel.
+     *
+     * @param {Object}   feature  Feature GeoJSON – a .properties.ISO_A2
+     * @param {L.Path}   layer    Chemin SVG/Canvas Leaflet pour ce pays
+     */
+    onEachFeature(feature, layer) {
+      const iso2 = feature.properties['ISO3166-1-Alpha-2'];
+      // Ignore les territoires sans code ISO valide (ex. Kosovo = "-99")
+      if (!iso2 || iso2 === '-99') return;
+
+      layer.on({
+        /** Survol souris : légère mise en évidence si non marqué */
+        mouseover(e) {
+          if (!e.target._marked) e.target.setStyle({ fillColor:'#2563eb', fillOpacity:0.78 });
+          e.target.bringToFront();
+        },
+        /** Sortie souris : restaure le style GeoJSON par défaut */
+        mouseout(e) {
+          if (!e.target._marked) geoLayer.resetStyle(e.target);
+        },
+        /** Clic joueur : enregistre la réponse */
+        click: onCountryClick,
+      });
+    },
+  }).addTo(map);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   LOGIQUE DE JEU
+════════════════════════════════════════════════════════════════ */
+
+/**
+ * Lance une nouvelle partie.
+ * @param {Array}   list     – Pays à questionner
+ * @param {string}  name     – Nom de la liste (affichage)
+ * @param {boolean} isRetry  – true = relance d'erreurs (ne change pas rootList)
+ */
+function startGame(list, name, isRetry = false) {
+  if (!isRetry) rootList = [...list]; // Préserve la liste originale pour "Rejouer la liste complète"
+  origList = [...list];
+  gameList = shuffle([...list]);
+  qIdx     = 0;
+  score    = 0;
+  mistakes = [];
+  locked   = false;
+
+  showScr('scr-game');
+  initMap();
+
+  // Attend le rendu du conteneur avant de dimensionner Leaflet
+  setTimeout(() => { map.invalidateSize(); showQuestion(); }, 80);
+}
+
+/** Algorithme de mélange Fisher-Yates (en place) */
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/** Affiche la question courante (drapeau + nom + progression) */
+function showQuestion() {
+  if (qIdx >= gameList.length) { showResults(); return; }
+  const c = gameList[qIdx];
+  document.getElementById('qflag').textContent = c.flag;       // emoji
+  document.getElementById('qname').textContent = c.name;
+  document.getElementById('qprog').textContent  = `${qIdx + 1} / ${gameList.length}`;
+  document.getElementById('qbar').style.width    = `${(qIdx / gameList.length) * 100}%`;
+  locked = false;
+}
+
+/**
+ * Gère le clic sur un polygone pays — cœur de la mécanique de jeu.
+ *
+ * Flux :
+ *   1. Compare l'ISO2 cliqué à celui de la question courante.
+ *   2. Bonne réponse → vert + score++
+ *   3. Mauvaise réponse → rouge sur cliqué + vert sur le bon + ajout à mistakes[]
+ *   4. Après 1,6 s → efface les marquages, passe à la question suivante.
+ *
+ * @param {L.LeafletMouseEvent} e
+ */
+function onCountryClick(e) {
+  if (locked) return; // Debounce : empêche le double-clic pendant le feedback
+  locked = true;
+
+  const layer = e.target;
+  const iso2  = layer.feature.properties['ISO3166-1-Alpha-2'];
+  const cur   = gameList[qIdx]; // Pays que le joueur devait trouver
+  const ok    = (iso2 === cur.iso2);
+
+  if (ok) {
+    score++;
+    paintLayer(layer, true);
+    toast(`✅  ${cur.name}`, 'ok');
+  } else {
+    // Ajoute au tableau des pays non mémorisés
+    mistakes.push(cur);
+    paintLayer(layer, false);
+    highlightCorrect(cur.iso2); // Montre où se trouvait le bon pays
+    toast(`❌  C'était : ${cur.name}`, 'er');
+  }
+
+  // Avance à la question suivante après le feedback visuel
+  setTimeout(() => { clearMarks(); qIdx++; showQuestion(); }, 1600);
+}
+
+/** Peint un polygone en vert (correct) ou rouge (erreur) et le verrouille */
+function paintLayer(layer, ok) {
+  layer._marked = true;
+  layer.setStyle({
+    fillColor:   ok ? '#22c55e' : '#ef4444',
+    fillOpacity: 0.82,
+    color:       ok ? '#16a34a' : '#dc2626',
+    weight:      2.5,
+  });
+  layer.bringToFront();
+}
+
+/** Trouve et met en évidence le bon pays en vert (quand le joueur s'est trompé) */
+function highlightCorrect(iso2) {
+  geoLayer.eachLayer(l => {
+    if (l.feature.properties['ISO3166-1-Alpha-2'] === iso2) paintLayer(l, true);
+  });
+}
+
+/** Efface tous les marquages et restaure les styles par défaut */
+function clearMarks() {
+  geoLayer.eachLayer(l => {
+    l._marked = false;
+    geoLayer.resetStyle(l);
+  });
+}
+
+/* ════════════════════════════════════════════════════════════════
+   TOAST DE FEEDBACK
+════════════════════════════════════════════════════════════════ */
+let _tt = null;
+function toast(msg, type) {
+  const el = document.getElementById('toast');
+  clearTimeout(_tt);
+  el.textContent = msg;
+  el.className = `vis ${type}`;
+  _tt = setTimeout(() => { el.className = ''; }, 1500);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   ÉCRAN DE RÉSULTATS
+════════════════════════════════════════════════════════════════ */
+function showResults() {
+  const n   = gameList.length;
+  const pct = Math.round((score / n) * 100);
+
+  document.getElementById('rmed').textContent = pct >= 90 ? '🏆' : pct >= 70 ? '🥈' : pct >= 50 ? '🥉' : '💪';
+  document.getElementById('rsco').textContent = `${score} / ${n}`;
+  document.getElementById('rpct').textContent = `${pct} % de bonnes réponses`;
+
+  const errBtn = document.getElementById('rerr');
+  if (mistakes.length) {
+    errBtn.style.display = 'block';
+    errBtn.textContent   = `🔄 Rejouer les erreurs (${mistakes.length})`;
+  } else {
+    errBtn.style.display = 'none';
+  }
+  showScr('scr-res');
+}
+
+/** Relance une partie uniquement avec les pays ratés */
+function retryErrors() { if (mistakes.length) startGame([...mistakes], 'Erreurs', true); }
+
+/** Relance la partie avec la liste originale choisie depuis le menu */
+function retryFull()   { startGame([...rootList], 'Liste complète'); }
+
+/** Retour au menu principal (avec nettoyage de la carte) */
+function goHome() {
+  if (map) { map.remove(); map = null; geoLayer = null; }
+  renderHome();
+  showScr('scr-home');
+}
+
+/** Demande confirmation avant d'abandonner une partie en cours */
+function tryGoHome() {
+  if (qIdx > 0 && qIdx < gameList.length && !confirm('Abandonner la partie en cours ?')) return;
+  goHome();
+}
+
+/* ════════════════════════════════════════════════════════════════
+   MODAL – CRÉATION DE LISTE PERSONNALISÉE
+════════════════════════════════════════════════════════════════ */
+function openModal() {
+  mRegion   = null;
+  mSelected = new Set(); // Réinitialise la sélection
+  document.getElementById('mname').value   = '';
+  document.getElementById('msearch').value = '';
+  document.querySelectorAll('#mchips .chip').forEach((c, i) => c.classList.toggle('on', i === 0));
+  refreshClist();
+  document.getElementById('ov').classList.add('on');
+}
+
+function closeModal() { document.getElementById('ov').classList.remove('on'); }
+
+/** Sélection d'un chip de région */
+function chipClick(region, btn) {
+  mRegion = region;
+  document.querySelectorAll('#mchips .chip').forEach(c => c.classList.remove('on'));
+  btn.classList.add('on');
+  refreshClist();
+}
+
+/**
+ * Re-rend la liste de cases à cocher selon les filtres actifs.
+ * La sélection (mSelected) est préservée entre les re-rendus
+ * grâce au Set persistant — pas de perte lors du changement de filtre.
+ * Le drapeau de chaque ligne est l'emoji déjà calculé sur l'objet pays.
+ */
+function refreshClist() {
+  const q = document.getElementById('msearch').value.toLowerCase();
+  let list = [...countries].sort((a, b) => a.name.localeCompare(b.name));
+  if (mRegion) list = list.filter(c => c.region === mRegion);
+  if (q)       list = list.filter(c => c.name.toLowerCase().includes(q));
+
+  document.getElementById('clist').innerHTML = list.map(c => `
+    <label class="crow">
+      <input type="checkbox" value="${c.iso2}" ${mSelected.has(c.iso2) ? 'checked' : ''}
+             onchange="toggleSel('${c.iso2}',this.checked)">
+      <span class="flagm">${c.flag}</span>
+      <span class="cname">${c.name}</span>
+    </label>
+  `).join('');
+
+  updateSelCnt();
+}
+
+/** Met à jour le Set de sélection et le compteur */
+function toggleSel(iso2, checked) {
+  if (checked) mSelected.add(iso2);
+  else         mSelected.delete(iso2);
+  updateSelCnt();
+}
+
+function updateSelCnt() {
+  document.getElementById('mscnt').textContent = `${mSelected.size} sélectionné(s)`;
+}
+
+/** Coche tous les pays visibles ET les ajoute à mSelected */
+function checkAll() {
+  document.querySelectorAll('#clist input').forEach(el => {
+    el.checked = true;
+    mSelected.add(el.value);
+  });
+  updateSelCnt();
+}
+
+/** Décoche tous les pays visibles ET les retire de mSelected */
+function uncheckAll() {
+  document.querySelectorAll('#clist input').forEach(el => {
+    el.checked = false;
+    mSelected.delete(el.value);
+  });
+  updateSelCnt();
+}
+
+/** Sauvegarde la liste personnalisée dans le stockage persistant */
+function saveCustomList() {
+  const name = document.getElementById('mname').value.trim();
+  if (!name)              { alert('Donnez un nom à votre liste.'); return; }
+  if (mSelected.size < 2) { alert('Sélectionnez au moins 2 pays.'); return; }
+
+  customs[name] = [...mSelected];
+  sSet(STORE_KEY, customs);
+  closeModal();
+  renderHome();
+  toast(`✅ Liste "${name}" sauvegardée !`, 'ok');
+}
+
+/* ════════════════════════════════════════════════════════════════
+   DÉMARRAGE
+════════════════════════════════════════════════════════════════ */
+init();
+</script>
+</body>
+</html>
